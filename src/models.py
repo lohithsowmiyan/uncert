@@ -14,7 +14,7 @@ class Model(ABC):
         pass
 
     @abstractmethod
-    def fit(self, train, test) -> None:
+    def fit(self, train, test, sample) -> None:
         pass
 
     @abstractmethod
@@ -40,7 +40,7 @@ class NaiveBayesModel(Model):
         self.todo: List[Tuple[List[float], Any]] = []
         self.test_set = []
 
-    def fit(self, train: List[Tuple[List[float], Any]], test: List[Tuple[List[float], Any]]) -> None:
+    def fit(self, train: List[Tuple[List[float], Any]], test: List[Tuple[List[float], Any]], sample = 'uncertainity') -> None:
         self.test_set = test
         self.batch_size = max(1, int(len(train) * self.batch_per))
         shuffled = train.copy()
@@ -57,7 +57,10 @@ class NaiveBayesModel(Model):
             self.model.fit(X_done, y_done)
 
             # Get most uncertain sample
-            most_uncertain, *self.todo = self.calculate_uncertainty()
+            if sample == 'uncertainty':
+                most_uncertain, *self.todo = self.calculate_uncertainty()
+            else:
+                most_uncertain, *self.todo = self.todo
             self.done += [most_uncertain]
 
             count += 1
@@ -121,7 +124,7 @@ class LogisticRegressionModel:
         self.todo: List[Tuple[List[float], Any]] = []
         self.test_set = []
 
-    def fit(self, train: List[Tuple[List[float], Any]], test: List[Tuple[List[float], Any]]) -> None:
+    def fit(self, train: List[Tuple[List[float], Any]], test: List[Tuple[List[float], Any]],sample = 'uncertainty') -> None:
         self.test_set = test
         self.batch_size = max(1, int(len(train) * self.batch_per))
         shuffled = train.copy()
@@ -138,7 +141,10 @@ class LogisticRegressionModel:
             self.model.fit(X_done, y_done)
 
             # Get most uncertain sample
-            most_uncertain, *self.todo = self.calculate_uncertainty()
+            if sample == 'uncertainty':
+                most_uncertain, *self.todo = self.calculate_uncertainty()
+            else:
+                most_uncertain, *self.todo = self.todo
             self.done += [most_uncertain]
 
             count += 1
@@ -198,7 +204,7 @@ class RandomForestClassifierModel:
         self.todo: List[Tuple[List[float], Any]] = []
         self.test_set = []
 
-    def fit(self, train: List[Tuple[List[float], Any]], test: List[Tuple[List[float], Any]]) -> None:
+    def fit(self, train: List[Tuple[List[float], Any]], test: List[Tuple[List[float], Any]], sample : str = "uncertainty") -> None:
         self.test_set = test
         self.batch_size = max(1, int(len(train) * self.batch_per))
         shuffled = train.copy()
@@ -215,7 +221,10 @@ class RandomForestClassifierModel:
             self.model.fit(X_done, y_done)
 
             # Get most uncertain sample
-            most_uncertain, *self.todo = self.calculate_uncertainty()
+            if sample == 'uncertainty':
+                most_uncertain, *self.todo = self.calculate_uncertainty()
+            else:
+                most_uncertain, *self.todo = self.todo
             self.done += [most_uncertain]
 
             count += 1
