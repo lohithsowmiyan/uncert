@@ -31,7 +31,7 @@ class Model(ABC):
 
 
 class NaiveBayesModel(Model):
-    def __init__(self, batch_per: float = 0):
+    def __init__(self, start: int, stop : int, batch_per: float = 0):
         super().__init__()
         self.model = GaussianNB()
         self.batch_per = batch_per
@@ -39,18 +39,21 @@ class NaiveBayesModel(Model):
         self.done: List[Tuple[List[float], Any]] = []
         self.todo: List[Tuple[List[float], Any]] = []
         self.test_set = []
+        self.stop = stop
+        self.start = start
+
 
     def fit(self, train: List[Tuple[List[float], Any]], test: List[Tuple[List[float], Any]], sample = 'uncertainity') -> None:
         self.test_set = test
         self.batch_size = max(1, int(len(train) * self.batch_per))
         shuffled = train.copy()
         random.shuffle(shuffled)
-        self.done = shuffled[:16]
-        self.todo = shuffled[16:]
+        self.done = shuffled[:self.start]
+        self.todo = shuffled[self.start:]
 
         count = 0
 
-        while self.todo:
+        while self.todo and len(self.done) <= self.stop:
             # Train model on current done set
             X_done = [x for x, _ in self.done]
             y_done = [y for _, y in self.done]
@@ -116,25 +119,27 @@ from sklearn.linear_model import LogisticRegression
 
 
 class LogisticRegressionModel:
-    def __init__(self, batch_per: float = 0):
+    def __init__(self,start: int, stop : int, batch_per: float = 0):
         self.model = LogisticRegression(max_iter=1000)
         self.batch_per = batch_per
         self.scores = []
         self.done: List[Tuple[List[float], Any]] = []
         self.todo: List[Tuple[List[float], Any]] = []
         self.test_set = []
+        self.start = start
+        self.stop = stop
 
     def fit(self, train: List[Tuple[List[float], Any]], test: List[Tuple[List[float], Any]],sample = 'uncertainty') -> None:
         self.test_set = test
         self.batch_size = max(1, int(len(train) * self.batch_per))
         shuffled = train.copy()
         random.shuffle(shuffled)
-        self.done = shuffled[:16]
-        self.todo = shuffled[16:]
+        self.done = shuffled[:self.start]
+        self.todo = shuffled[self.start:]
 
         count = 0
 
-        while self.todo:
+        while self.todo and len(self.done) <= self.stop:
             # Train model on current done set
             X_done = [x for x, _ in self.done]
             y_done = [y for _, y in self.done]
@@ -161,7 +166,7 @@ class LogisticRegressionModel:
         entropies = [-sum(p * math.log(p + 1e-9) for p in prob) for prob in probs]
         scored = list(zip(entropies, self.todo))
         scored.sort(reverse=True, key=lambda tup: tup[0])  # High entropy = high uncertainty
-
+        print(scored)
         return [sample for _, sample in scored]
 
     def get_scores(self, test: List[Tuple[List[float], Any]]) -> Dict[str, float]:
@@ -196,35 +201,35 @@ from sklearn.ensemble import RandomForestClassifier
 
 
 class RandomForestClassifierModel:
-    def __init__(self, batch_per: float = 0):
+    def __init__(self, start: int, stop : int,batch_per: float = 0):
         self.model = RandomForestClassifier(n_estimators=100)
         self.batch_per = batch_per
         self.scores = []
         self.done: List[Tuple[List[float], Any]] = []
         self.todo: List[Tuple[List[float], Any]] = []
         self.test_set = []
+        self.start = start
+        self.stop = stop
 
     def fit(self, train: List[Tuple[List[float], Any]], test: List[Tuple[List[float], Any]], sample : str = "uncertainty") -> None:
         self.test_set = test
         self.batch_size = max(1, int(len(train) * self.batch_per))
         shuffled = train.copy()
         random.shuffle(shuffled)
-        self.done = shuffled[:16]
-        self.todo = shuffled[16:]
+        self.done = shuffled[:self.start]
+        self.todo = shuffled[self.start:]
 
         count = 0
 
-        while self.todo:
+        while self.todo and len(self.done) <= self.stop:
             # Train model on current done set
             X_done = [x for x, _ in self.done]
             y_done = [y for _, y in self.done]
             self.model.fit(X_done, y_done)
 
             # Get most uncertain sample
-            if sample == 'uncertainty':
-                most_uncertain, *self.todo = self.calculate_uncertainty()
-            else:
-                most_uncertain, *self.todo = self.todo
+            
+            most_uncertain, *self.todo = self.calculate_uncertainty() if sample == 'uncertainity' else self.todo
             self.done += [most_uncertain]
 
             count += 1
@@ -250,7 +255,7 @@ class RandomForestClassifierModel:
         y_pred = self.model.predict(X_test)
 
         acc = accuracy_score(y_test, y_pred)
-        rec = recall_score(y_test, y_pred, average='macro')
+        rec = recall_score(y_test, y_pred, average= 'macro')
         f1 = f1_score(y_test, y_pred, average='macro')
 
         cm = confusion_matrix(y_test, y_pred)
