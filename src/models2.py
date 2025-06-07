@@ -1,5 +1,5 @@
 from sklearn.metrics import accuracy_score, recall_score, f1_score, confusion_matrix
-from models import Model
+from src.models import Model
 from typing import Tuple, List, Dict, Any
 import random
 import math
@@ -19,7 +19,7 @@ from typing import Dict, List
 # from resources.constants import Uncertainty
 # from utils.uncertainty_utils import calculate_entropy_uncertainties
 
-def calculate_entropy_uncertainties(labels: list, end_leafs: np.ndarray, leafs_split: List[Dict[int, List[int]]]) -> Uncertainty:
+def calculate_entropy_uncertainties(labels: list, end_leafs: np.ndarray, leafs_split: List[Dict[int, List[int]]]):
     """
     Based on the paper Shaker MH, Hüllermeier E. Aleatoric and epistemic uncertainty with random forests. In International Symposium on
     Intelligent Data Analysis 2020 Apr 27 (pp. 444-456). Springer, Cham. (https://arxiv.org/pdf/2001.00893.pdf)
@@ -96,17 +96,17 @@ class RFWithUncertainty(RandomForestClassifier):
         # summarize the features used in the trees:
         self.used_features = self._output_used_features(X)
 
-    def predict_with_uncertainty(self, X_test) -> (np.ndarray, List[Uncertainty]):
-        predictions = self.predict(X_test)
+    def predict_with_uncertainty(self, X_test):
+        #predictions = self.predict(X_test)
         end_leafs = self.apply(X_test)
         uncertainties = self._extract_uncertainty_of_prediction(end_leafs, method='entropy')
-        return predictions, uncertainties
+        return uncertainties
 
-    def predict_proba_with_uncertainty(self, X_test) -> (np.ndarray, List[Uncertainty]):
-        predictions = self.predict_proba_1d(X_test)
-        end_leafs = self.apply(X_test)
-        uncertainties = self._extract_uncertainty_of_prediction(end_leafs, method='entropy')
-        return predictions, uncertainties
+    # def predict_proba_with_uncertainty(self, X_test):
+    #     predictions = self.predict_proba_1d(X_test)
+    #     end_leafs = self.apply(X_test)
+    #     uncertainties = self._extract_uncertainty_of_prediction(end_leafs, method='entropy')
+    #     return predictions, uncertainties
 
     def predict_proba_1d(self, x: pd.DataFrame) -> np.ndarray:
         res = self.predict_proba(x)
@@ -163,11 +163,12 @@ class RFWithUncertainty(RandomForestClassifier):
             return d
         leaves_index = self.apply(X_train)
         f = lambda x: [-1, 1][x]
-        y_train_ = np.expand_dims(np.vectorize(f)(y_train.values.astype(int)),  axis=1)  # map False to -1 and adjust dimensions
+        y_train_array = np.array(y_train).astype(int)
+        y_train_ = np.expand_dims(np.vectorize(f)(y_train_array), axis=1) # map False to -1 and adjust dimensions
         leaves_index_with_signs = np.multiply(leaves_index, y_train_)  # multiply with labels to sum the different classes
         return np.apply_along_axis(_summarize_into_dict, 0, leaves_index_with_signs)
 
-    def _extract_uncertainty_of_prediction(self, end_leafs, method='entropy') -> List[Uncertainty]:
+    def _extract_uncertainty_of_prediction(self, end_leafs, method='entropy'):
         """
         Using the method specified calculate the uncertainty of a prediction that was made
         :param method: Currently we support "entropy" method only
@@ -182,57 +183,63 @@ class RFWithUncertainty(RandomForestClassifier):
         return uncertainty
 
 class UncertForest(Model):
-    def __init__(self, start: int, stop : int,batch_per: float = 0):
+    def __init__(self, start: int, stop: int, batch_per: float = 0):
         self.model = RFWithUncertainty(n_estimators=30)
         self.batch_per = batch_per
         self.scores = []
-        self.done: List[Tuple[List[float], Any]] = []
-        self.todo: List[Tuple[List[float], Any]] = []
-        self.test_set = []
+        self.done = pd.DataFrame()   # Initially empty DataFrame
+        self.todo = pd.DataFrame()
+        self.test_set = pd.DataFrame()
         self.start = start
         self.stop = stop
 
-    def fit(self, train: List[Tuple[List[float], Any]], test: List[Tuple[List[float], Any]], sample : str = "uncertainty") -> None:
-        self.test_set = test
+    def fit(self, train: pd.DataFrame, test: pd.DataFrame) -> None:
+        self.test_set = test.copy()
         self.batch_size = max(1, int(len(train) * self.batch_per))
-        shuffled = train.copy()
-        random.shuffle(shuffled)
-        self.done = shuffled[:self.start]
-        self.todo = shuffled[self.start:]
+
+        shuffled = train.sample(frac=1, random_state=42).reset_index(drop=True)
+        self.done = shuffled.iloc[:self.start].copy()
+        self.todo = shuffled.iloc[self.start:].copy()
 
         count = 0
 
-        while self.todo and len(self.done) <= self.stop:
-            # Train model on current done set
-            X_done = [x for x, _ in self.done]
-            y_done = [y for _, y in self.done]
+        while not self.todo.empty and len(self.done) <= self.stop:
+            # Separate features and labels
+            X_done = self.done.iloc[:, :-1]
+            y_done = self.done.iloc[:, -1]
             self.model.fit(X_done, y_done)
 
             # Get most uncertain sample
-            
-            most_uncertain, *self.todo = self.calculate_uncertainty() if sample == 'uncertainity' else self.todo
-            self.done += [most_uncertain]
+            most_uncertain, self.todo = self.calculate_uncertainty()
+            self.done = pd.concat([self.done, most_uncertain], ignore_index=True)
 
             count += 1
-            if count % self.batch_size == 0 or not self.todo:
+            if count % self.batch_size == 0 or self.todo.empty:
                 self.scores.append(self.get_scores(self.test_set))
 
-    def calculate_uncertainty(self) -> List[Tuple[List[float], Any]]:
-        if not self.todo:
-            return []
+    def calculate_uncertainty(self) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        if self.todo.empty:
+            return pd.DataFrame(), pd.DataFrame()
 
-        X_todo = [x for x, _ in self.todo]
-        probs = self.model.predict_proba(X_todo)
+        X_todo = self.todo.iloc[:, :-1].values
+        uncertainties = self.model.predict_with_uncertainty(X_todo)
 
-        entropies = [-sum(p * math.log(p + 1e-9) for p in prob) for prob in probs]
-        scored = list(zip(entropies, self.todo))
-        scored.sort(reverse=True, key=lambda tup: tup[0])  # High entropy = high uncertainty
+        # Assume uncertainties[2] contains entropy/uncertainty scores
+        scores = uncertainties[2]
+        scored = pd.DataFrame({
+            'uncertainty': scores
+        })
+        scored = pd.concat([scored, self.todo.reset_index(drop=True)], axis=1)
+        scored = scored.sort_values(by='uncertainty', ascending=False).reset_index(drop=True)
 
-        return [sample for _, sample in scored]
+        most_uncertain = scored.iloc[[0]].drop(columns=['uncertainty'])
+        remaining = scored.iloc[1:].drop(columns=['uncertainty'])
+
+        return most_uncertain, remaining
 
     def get_scores(self, test: List[Tuple[List[float], Any]]) -> Dict[str, float]:
-        X_test = [x for x, _ in test]
-        y_test = [y for _, y in test]
+        X_test = [x for x in test.iloc[:,:-1].values]
+        y_test = [y for y in test.iloc[:,-1].values]
         y_pred = self.model.predict(X_test)
 
         acc = accuracy_score(y_test, y_pred)
