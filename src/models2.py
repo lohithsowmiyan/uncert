@@ -75,7 +75,7 @@ def _calculate_class_conditional_probabilities(label, n_labels, end_leaf, tree_l
     with this label
     :param n_labels: total number of possible labels (i.e. for binary this would be 2)
     """
-    print("end_leaf", end_leaf,"label",label)
+    
     n_y = tree_leafs_split[end_leaf][label]
     n = sum(tree_leafs_split[end_leaf])
     return (n_y + 1) / (n + n_labels)
@@ -89,7 +89,7 @@ class RFWithUncertainty(RandomForestClassifier):
 
     def fit(self, X, y, sample_weight=None):
         super().fit(X, y, sample_weight=sample_weight)
-        print("y_values",y.unique().tolist())
+        
         # produce a map of the counts of labels in each leaf
         self.leafs_content = self._binary_leaf_split_counter(X, y)
         # all possible labels:
