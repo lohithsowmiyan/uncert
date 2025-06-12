@@ -45,7 +45,7 @@ class NaiveBayesModel():
         self.start = start
 
 
-    def fit_1(self, train: List[Tuple[List[float], Any]], test: List[Tuple[List[float], Any]], sample = 'uncertainity') -> None:
+    def fit(self, train: List[Tuple[List[float], Any]], test: List[Tuple[List[float], Any]], sample = 'uncertainity') -> None:
         self.test_set = test
         self.batch_size = max(1, int(len(train) * self.batch_per))
         shuffled = train.copy()
